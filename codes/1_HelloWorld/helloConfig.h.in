@@ -1,0 +1,3 @@
+// The configured options and settings
+#define hello_VERSION_MAJOR @hello_VERSION_MAJOR@
+#define hello_VERSION_MINOR @hello_VERSION_MINOR@
