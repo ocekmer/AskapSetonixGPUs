@@ -78,8 +78,7 @@ message(${CMAKE_EXE_LINKER_FLAGS})
 
 target_include_directories(askap PUBLIC
                            "${PROJECT_BINARY_DIR}"
-                           "${PROJECT_BINARY_DIR}/utilities"
-                           "${PROJECT_BINARY_DIR}/src"
-                           "${PROJECT_BINARY_DIR}/src/Solvers"
+                           "${PROJECT_BINARY_DIR}/utilities/src"
+                           "${PROJECT_BINARY_DIR}/solvers/src"
                            "${PROJECT_BINARY_DIR}/data"
                            )
