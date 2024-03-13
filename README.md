@@ -3,30 +3,154 @@
 
 ## Contents
 - [Introduction](#Introduction)
-- [Codes](#Codes)
+    - [General Information about Setonix](#general-information-about-setonix)
+    - [Filesystems & data management](#filesystems--data-management)
+    - [About slurm partitions](#about-slurm-partitions)
+    - [Node architecture](#node-architecture)
+- [Job Allocation on Setonix](#job-allocation-on-setonix)
+    - [Requesting allocation-packs](#requesting-allocation-packs)
+    - [Account name](#account-name)
+    - [Job allocation (salloc) options](#job-allocation-salloc-options)
+    - [Job run (srun) options](#job-run-srun-options)
+    - [Examples](#examples)
+- [Optimal binding of GPUs](#optimal-binding-of-gpus)
+    - [Using srun parameters](#using-srun-parameters)
+    - [The manual method](#the-manual-method)
+- [Testing Our Codes](#testing-our-codes)
     - [Hello World](#hello-world)
     - [Hello World as a Class](#hello-world-as-a-class)
-    - [Deconvolution](#deconvolution)
-- [Running Non-Exclusive Jobs](#running-non-exclusive-jobs)
-    - [Single Thread](#single-thread)
-    - [Single-Thread](#single-thread)
-    - [Multi-Thread](#multi-thread)
+    - [Clean](#clean)
+    - [Simple Tets](#simple-tests)
 
 ## Introduction
+### General information about Setonix
+- AMD CPUs & GPUs
+- HPE Cray EX architecture
+- More than 200,000 CPUs
+- 750 GPUs
+- Slingshot-10 interconnect with 200Gb/s bandwidth per connection
+- AMD infinity fabric interconnect
+    - between GPUs
+    - between CPUs and GPUs
+- 192 GPU-enabled nodes
+    - one 64-core AMD Trento CPU
+    - 4 AMD MI250X GPU cards providing 8 logical GPUs per node
+    - each MI250X GPU has 2 GCDs (Global Compute Dies)
+
+### Filesystems & data management
+- ***/home***: where user can save personal configuration files
+- ***/software***: where user can install software
+- ***/scratch***: high-performance parallel filesystem to be used for I/O operations within jobs
+
+### About slurm partitions
+
+|Partition|Number of Nodes|Number of cores per node|Memory (GB)|Number of GPUs per node|Max Allocation time (hr)| Purpose |
+|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+|gpu|134|64|230|8|24|gpu-based production jobs|
+|gpu-highmem|38|64|460|8|24|gpu jobs requiring more memory|
+|gpu-dev|20|64|230|8|4|gpu software development & debugging|
+
+### Node architecture
 - A Setonix GPU node has 
     - A 64-core **AMD Trento CPU**
     - 4 **AMD MI250X GPUs**
 - Each **MI250X** contains 2 Graphics Complex Die (GCD)
-- 64 cores on each GPU node is divided into 8-core groups called ***chiplets*** (or ***slurm-socket***)
+    - Hence, each GPU node has 8 visible GPUs
+- 64 cores of a single AMD CPU chip on each GPU node is divided into 8-core groups called ***chiplets*** (or ***slurm-socket***)
 - Cores in each chiplet share an L3 cache
-- Each chiplet is physically connected to a specific GPU as shown below:
+- Each chiplet is physically connected to a specific GPU by a direct Infinity Fabric connection as shown below:
 ![Setonix - GPU node architecture](figures/Setonix-GPU-Node.png)
-- To reach the optimal performance, it is critical for each chiplet to use the GPU, to which it's physically connected.
-- 2 techniques can be used to do this:
-    - use a wrapper that selects the correct GPU
-    - generate an ordered list to be used in the --cpu-bind option
+- In order to achieve best performance, it is preferred that allocated CPU cores from a chiplet ***talk*** directly to the physically connected GPU
+- The numbering of the cores and bus IDs of the GPUs may be used to identify the connected chiplets and GPUs.
+- Communication with other GPUs is possible and fast, but requires at least another leap of communication.
 
-## Codes
+- ***NOTE:***
+    - The shared jobs are currently non-optimal (Shared jobs may not receive optimal binding)
+    - Use exclusive jobs
+
+## Job Allocation on Setonix
+### Requesting ***allocation-packs***
+- **--gres-gpu:** ***number*** is used to request an ***allocation-pack***
+- An ***allocation-pack*** includes the following:
+    - A CPU chiplet (a slurm-socket with 8 CPU cores)
+    - 29.44 GB memory (1 / 8 of the total available RAM)
+    - 1 GCD directly connected to that chiplet
+
+### ***account*** name
+- ***-gpu*** should be added at the end of the account name
+    - e.g., salloc ... -A myAccount-gpu
+    - This applies for all partitions mentioned above
+
+### Job allocation (***salloc***) options:
+|options|description|notes|
+|-:|:-|-:|
+|--nodes (-N)|number of nodes||
+|--gres=gpu:*number*|number of allocation-packs per node||
+|--exclusive|all the resources from the number of requested nodes|When this option is used, there is no need for the use of --gres=gpu:*number* during allocation|
+|||Other slurm request parameters related to partition, walltime, job naming, output, email, etc can also be used|
+
+### Job run (***srun***) options:
+- The following should be provided, and not assumed to get inherited from ***salloc*** stage
+
+|options|description|notes|
+|-:|:-|-:|
+|--nodes (-N)|number of nodes to be used by srun||
+|--ntasks (-n)|total number of tasks to be spawned by the srun step|By default, tasks are spawned evenly across the number of allocated nodes|
+|--cpus-per-task (-c)|should be set to multiples of 8 (whole chiplets)|Number of OpenMP threads can be controlled with OMP_NUM_THREADS environment variable|
+|--gres=gpu:*number*| number of ***GPUs per node*** to be used by the srun step||
+|--gpus-per-task (-g)| number of GPUs to be binded to each task spawned by the srun step via the -n option||
+|--gpu-bind=closest| the chosen GPUs to be binded to the physically closest chiplet assigned to each task|does NOT work in some cases; use manual method instead|
+
+### Examples
+- 8 example cases with the needed salloc and srun options are summarised below:
+![Example salloc and srun options](figures/sallocCases.png)
+
+## Optimal binding of GPUs
+- There are 2 methods for optimal binding of a GPU to a CPU chiplet.
+    - Using ***srun*** commands
+    - Manual binding
+
+### Using ***srun*** parameters
+- Use the following flags:
+    - --gpus-per-task
+    - --gpu-bind=closest
+- May cause MPI communication errors
+
+### The ***manual*** method
+- This method consist of two auxiliary techniques working together.
+- **Technique 1:** Use a wrapper to set a unique value of ROCR_VISIBLE_DEVICE for each task.
+    - Create the wrapper script, ***selectGPU_X.sh***, and use ***chmod*** to have execution permissions as shown below: 
+    
+    ```
+    #!/bin/bash
+ 
+    export ROCR_VISIBLE_DEVICES=$SLURM_LOCALID
+    exec $*
+    ```   
+    ```
+    chmod 755 selectGPU_X.sh    
+    ```
+- The wrapper should be called before the executable.
+- **Technique 2:** Use a list of CPU cores to control task placement using ***generate_CPU_BIND.sh***
+- ***generate_CPU_BIND.sh*** takes one of the parameters below:
+    - ***map_cpu:*** To create an ordered list of CPU-cores
+    - ***mask_cpu:*** To use an optimal communication between the tasks and GPUs
+- Hence, our codes will be executed as follows:
+    - For a single thread per task application:
+    ```
+    export OMP_NUM_THREADS=1
+    CPU_BIND=$(generate_CPU_BIND.sh map_cpu)
+    srun <srun flags> --cpu-bind=${CPU_BIND} ./selectGPU_X.sh ./myExec
+    ```
+    - For a multi thread per task application:
+    ```
+    export MPICH_GPU_SUPPORT_ENABLED = 1
+    export OMP_NUM_THREADS=4
+    CPU_BIND=$(generate_CPU_BIND.sh mask_cpu)
+    srun <srun flags> --cpu-bind=${CPU_BIND} ./selectGPU_X.sh ./myExec
+    ```
+
+## Testing Our Codes
 ### Hello World
 - This code is a slightly modified version of the code used in [Setonix GPU Partition Quick Start](https://pawsey.atlassian.net/wiki/spaces/US/pages/51928618/Setonix+GPU+Partition+Quick+Start), and the original repository can be accessed [here](https://github.com/PawseySC/hello_jobstep). 
 - The following modifications have been implemented:
@@ -41,58 +165,18 @@
 - A new class "***Hello***", which includes the ***Hello World*** program in the previous section, has been constructed to be used in the following codes.
 - Each GPU code will call this class at the beginning to make sure that it's using the correct GPU-chiplet pair.
 
-### Deconvolution
+### Clean
 - A simple deconvolution code with two clean solvers (1 for CPU & 1 for GPU) is included.
 - A performance analysis is presented in the following sections.
 
+### Simple Tests
+- The following tests are designed for to run our codes in Setonix:
 
-## Running Non-Exclusive Jobs
-### Single-thread
-- First, jobs were built to work as non-exclusive to reproduce the results in the tutorial
-- The following is the first case with a single node, single thread, 3 tasks and 3 GPUs
-```
-salloc -N 1 -n 3 -c 8 --sockets-per-node=3 --gpus-per-node=3 -A <myGpuProject>-gpu --partition=gpu-dev --time=00:30:00
-
-module load PrgEnv-gnu craype-accel-amd-gfx90a rocm/5.4.3 cmake/3.21.4
-export PATH=$PATH:${CRAY_MPICH_DIR}/bin
-export CPATH=$CPATH:${CRAY_MPICH_DIR}/include
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${CRAY_MPICH_DIR}/lib/
-export MPICH_GPU_SUPPORT_ENABLED=1
-
-cmake ../
-make
-
-CPU_BIND=$(generate_CPU_BIND.sh map_cpu)
-echo $CPU_BIND
-
-export OMP_NUM_THREADS=1
-srun -N 1 -n 3 -c 8 --cpu-bind=${CPU_BIND} ../selectGPU_X.sh ./hello | sort -n
-```
-#### Result
-```
-```
-### Multi-thread
-- The following is the first case with a single node, multi-thread, multi-GPU
-```
-salloc -N 1 -n 3 -c 8 --sockets-per-node=3 --gpus-per-node=3 -A <myGpuProject>-gpu --partition=gpu-dev --time=00:30:00
-
-module load PrgEnv-gnu craype-accel-amd-gfx90a rocm/5.4.3 cmake/3.21.4
-export PATH=$PATH:${CRAY_MPICH_DIR}/bin
-export CPATH=$CPATH:${CRAY_MPICH_DIR}/include
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${CRAY_MPICH_DIR}/lib/
-export MPICH_GPU_SUPPORT_ENABLED=1
-
-cmake ../
-make
-
-CPU_BIND=$(generate_CPU_BIND.sh mask_cpu)
-echo $CPU_BIND
-
-export OMP_NUM_THREADS=4
-srun -N 1 -n 3 -c 8 --cpu-bind=${CPU_BIND} ../selectGPU_X.sh ./hello | sort -n
-```
-#### Result
-```
-```
-
-
+|Test Number|Code|Resources|
+|:-:|:-|:-|
+|1|Hello World Class|1 CPU task with 1 CPU thread controlling 1 GCD|
+|2|Hello World Class|1 CPU task with 14 CPU threads controlling the same GCD|
+|3|Hello World Class|3 CPU tasks with a single thread each controlling 1 GCD|
+|4|Hello World Class|8 CPU tasks with a single thread each controlling 4 GCDs|
+|5|Clean|1 CPU task with 1 CPU thread controlling 1 GCD|
+|6|Clean|1 CPU task with 64 CPU threads controlling the same GCD|
