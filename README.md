@@ -214,7 +214,7 @@ export CPATH=$CPATH:${CRAY_MPICH_DIR}/include
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${CRAY_MPICH_DIR}/lib/
 export MPICH_GPU_SUPPORT_ENABLED=1
 ```
-We should use the following to build our codes:
+We should use the following to build our codes (this is temporary until our CMake works):
 ```
 hipcc -x hip -std=c++17 main.cpp utilities/src/*.cpp -o askap -D__HIP_ROCclr__ -D__HIP_ARCH_GFX90A__=1 --offload-arch=gfx90a -fopenmp -O2 -I${MPICH_DIR}/include -L${MPICH_DIR}/lib -lmpi -L${CRAY_MPICH_ROOTDIR}/gtl/lib -lmpi_gtl_hsa -DUSEHIP
 ```
