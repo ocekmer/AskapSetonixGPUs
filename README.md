@@ -170,7 +170,7 @@
 - A performance analysis is presented in the following sections.
 
 ### Simple Tests
-- The following tests are designed for to run our codes in Setonix:
+- The following tests are designed to run our codes in Setonix using different resources:
 
 |Test Number|Code|Resources|
 |:-:|:-|:-|
