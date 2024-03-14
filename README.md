@@ -98,7 +98,7 @@
 |--ntasks (-n)|total number of tasks to be spawned by the srun step|By default, tasks are spawned evenly across the number of allocated nodes|
 |--cpus-per-task (-c)|should be set to multiples of 8 (whole chiplets)|Number of OpenMP threads can be controlled with OMP_NUM_THREADS environment variable|
 |--gres=gpu:*number*| number of ***GPUs per node*** to be used by the srun step||
-|--gpus-per-task (-g)| number of GPUs to be binded to each task spawned by the srun step via the -n option||
+|--gpus-per-task| number of GPUs to be binded to each task spawned by the srun step via the -n option||
 |--gpu-bind=closest| the chosen GPUs to be binded to the physically closest chiplet assigned to each task|does NOT work in some cases; use manual method instead|
 
 ### Examples
@@ -177,6 +177,127 @@
 |1|Hello World Class|1 CPU task with 1 CPU thread controlling 1 GCD|
 |2|Hello World Class|1 CPU task with 14 CPU threads controlling the same GCD|
 |3|Hello World Class|3 CPU tasks with a single thread each controlling 1 GCD|
-|4|Hello World Class|8 CPU tasks with a single thread each controlling 4 GCDs|
+|4|Hello World Class|8 CPU tasks with 2 threads each, each controlling 4 GCDs|
 |5|Clean|1 CPU task with 1 CPU thread controlling 1 GCD|
 |6|Clean|1 CPU task with 64 CPU threads controlling the same GCD|
+
+- Let's use the same resource allocation for the first 3 tests.
+```
+salloc --account=<gpuProject>-gpu --nodes=1 --exclusive --time=1:00:00 --partition=gpu-dev
+```
+- Then, load the following modules:
+```
+module swap PrgEnv-gnu PrgEnv-cray
+module load rocm craype-accel-amd-gfx90a
+```
+- Now, we can check our GPU resources by ***rocm-smi --showhw***.
+- Since, we allocated the entire node, we expect to see all 8 GCDs in our GPU node.
+```
+======================= ROCm System Management Interface =======================
+============================ Concise Hardware Info =============================
+GPU  DID   GFX RAS  SDMA RAS  UMC RAS   VBIOS           BUS
+0    7408  ENABLED  ENABLED   DISABLED  113-D65201-046  0000:C1:00.0
+1    7408  ENABLED  ENABLED   DISABLED  113-D65201-046  0000:C6:00.0
+2    7408  ENABLED  ENABLED   DISABLED  113-D65201-046  0000:C9:00.0
+3    7408  ENABLED  ENABLED   DISABLED  113-D65201-046  0000:CE:00.0
+4    7408  ENABLED  ENABLED   DISABLED  113-D65201-046  0000:D1:00.0
+5    7408  ENABLED  ENABLED   DISABLED  113-D65201-046  0000:D6:00.0
+6    7408  ENABLED  ENABLED   DISABLED  113-D65201-046  0000:D9:00.0
+7    7408  ENABLED  ENABLED   DISABLED  113-D65201-046  0000:DE:00.0
+================================================================================
+============================= End of ROCm SMI Log ==============================
+```
+- We are using a GPU-aware MPI. Hence, we need to export the necessary executables and libraries as follows:
+```
+export PATH=$PATH:${CRAY_MPICH_DIR}/bin
+export CPATH=$CPATH:${CRAY_MPICH_DIR}/include
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${CRAY_MPICH_DIR}/lib/
+export MPICH_GPU_SUPPORT_ENABLED=1
+```
+We should use the following to build our codes:
+```
+hipcc -x hip -std=c++17 main.cpp utilities/src/*.cpp -o askap -D__HIP_ROCclr__ -D__HIP_ARCH_GFX90A__=1 --offload-arch=gfx90a -fopenmp -O2 -I${MPICH_DIR}/include -L${MPICH_DIR}/lib -lmpi -L${CRAY_MPICH_ROOTDIR}/gtl/lib -lmpi_gtl_hsa -DUSEHIP
+```
+- Now, we can start to run our tests.
+#### Test 1
+- **Hello World Class**: 1 CPU task with 1 CPU thread controlling 1 GCD
+```
+export OMP_NUM_THREADS=1
+srun -N 1 -n 1 -c 8 --gres=gpu:1 --gpus-per-task=1 --gpu-bind=closest  ./askap | sort -n
+
+```
+- Output
+```
+MPI 0 - OMP 0 - HWT 55 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+```
+
+#### Test 2
+- **Hello World Class**: 1 CPU task with 14 CPU threads controlling the same GCD
+```
+export OMP_NUM_THREADS=14
+srun -N 1 -n 1 -c 16 --gres=gpu:1 --gpus-per-task=1 --gpu-bind=closest  ./askap | sort -n
+
+```
+- Output
+```
+PI 0 - OMP 0 - HWT 55 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 0 - OMP 10 - HWT 1 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 0 - OMP 11 - HWT 0 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 0 - OMP 12 - HWT 49 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 0 - OMP 13 - HWT 49 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 0 - OMP 1 - HWT 52 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 0 - OMP 2 - HWT 51 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 0 - OMP 3 - HWT 50 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 0 - OMP 4 - HWT 48 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 0 - OMP 5 - HWT 48 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 0 - OMP 6 - HWT 54 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 0 - OMP 7 - HWT 53 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 0 - OMP 8 - HWT 7 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 0 - OMP 9 - HWT 48 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+```
+
+#### Test 3
+- **Hello World Class**: 3 CPU tasks with a single thread each controlling 1 GCD
+
+```
+export OMP_NUM_THREADS=1
+srun -N 1 -n 3 -c 8 --gres=gpu:3 --gpus-per-task=1 --gpu-bind=closest  ./askap | sort -n
+
+```
+- Output
+```
+MPI 0 - OMP 0 - HWT 23 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c9
+MPI 1 - OMP 0 - HWT 55 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c1
+MPI 2 - OMP 0 - HWT 63 - Node nid002984 - RT_GPU_ID 0 - GPU_ID 0 - Bus_ID c6
+```
+
+#### Test 4
+- **Hello World Class**: 8 CPU tasks with 2 threads each, each controlling 4 GCDs
+- We need 32 GCDs for this test. Hence, we need a new allocation with 4 GPU nodes.
+```
+salloc --account=<gpuProject>-gpu --nodes=4 --exclusive --time=0:30:00 --partition=gpu-dev
+```
+```
+export OMP_NUM_THREADS=2
+srun -N 4 -n 8 -c 32 --gres=gpu:8 --gpus-per-task=4 --gpu-bind=closest  ./askap | sort -n
+
+```
+- Output
+```
+MPI 0 - OMP 0 - HWT 31 - Node nid002984 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c9,ce,d1,d6
+MPI 0 - OMP 1 - HWT 23 - Node nid002984 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c9,ce,d1,d6
+MPI 1 - OMP 0 - HWT 63 - Node nid002984 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c1,c6,d9,de
+MPI 1 - OMP 1 - HWT 55 - Node nid002984 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c1,c6,d9,de
+MPI 2 - OMP 0 - HWT 31 - Node nid002986 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c9,ce,d1,d6
+MPI 2 - OMP 1 - HWT 23 - Node nid002986 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c9,ce,d1,d6
+MPI 3 - OMP 0 - HWT 63 - Node nid002986 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c1,c6,d9,de
+MPI 3 - OMP 1 - HWT 55 - Node nid002986 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c1,c6,d9,de
+MPI 4 - OMP 0 - HWT 31 - Node nid002996 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c9,ce,d1,d6
+MPI 4 - OMP 1 - HWT 23 - Node nid002996 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c9,ce,d1,d6
+MPI 5 - OMP 0 - HWT 63 - Node nid002996 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c1,c6,d9,de
+MPI 5 - OMP 1 - HWT 51 - Node nid002996 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c1,c6,d9,de
+MPI 6 - OMP 0 - HWT 31 - Node nid002998 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c9,ce,d1,d6
+MPI 6 - OMP 1 - HWT 23 - Node nid002998 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c9,ce,d1,d6
+MPI 7 - OMP 0 - HWT 63 - Node nid002998 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c1,c6,d9,de
+MPI 7 - OMP 1 - HWT 55 - Node nid002998 - RT_GPU_ID 0,1,2,3 - GPU_ID 0,1,2,3 - Bus_ID c1,c6,d9,de
+```
