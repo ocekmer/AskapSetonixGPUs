@@ -20,7 +20,7 @@
     - [Hello World](#hello-world)
     - [Hello World as a Class](#hello-world-as-a-class)
     - [Clean](#clean)
-    - [Simple Tets](#simple-tests)
+    - [Simple Tests](#simple-tests)
 
 ## Introduction
 ### General information about Setonix
