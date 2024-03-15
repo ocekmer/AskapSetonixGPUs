@@ -8,8 +8,8 @@
 */
 static const size_t IMAGE_WIDTH = 4096;
 
-static const std::string gDirtyFile = "../data/dirty_" + std::to_string(IMAGE_WIDTH) + ".img";
-static const std::string gPsfFile = "../data/psf_" + std::to_string(IMAGE_WIDTH) + ".img";
+static const std::string gDirtyFile = "data/dirty_" + std::to_string(IMAGE_WIDTH) + ".img";
+static const std::string gPsfFile = "data/psf_" + std::to_string(IMAGE_WIDTH) + ".img";
 
 static const size_t gNiters = 1000;
 static const float gGain = 0.1;
@@ -23,12 +23,16 @@ static const std::string refSolverName = "omp";
 static const std::string testSolverName = "gpu";
 
 /*
-	Solvers:
+	SOLVERS:
+	
+	CPU Solvers
 	- cpu: serial CPU solver
+	- omp: a CPU solver with OpenMP multithreading
+
+	GPU Solvers
 	- gpu: a simple GPU solver
-
-
-	WARNING: All GPU solvers need to have the letters "gpu"
+	
+	WARNING: All GPU solver names need to have the letters "gpu"
 	(in this order & lower case) in their names
 */
 
