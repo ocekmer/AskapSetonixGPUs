@@ -169,7 +169,7 @@ void GpuSimple::subtractPSFSimple(const int& px, const int& py, const size_t& pe
 
     dim3 numBlocks(blocksx, blocksy);
     dim3 threadsPerBlock(blockDim, blockDim);
-    dSubtractPSF_Simple << <numBlocks, threadsPerBlock >> > (dPsf, dResidual, imageWidth,
+    dSubtractPSF_Simple <<<numBlocks, threadsPerBlock>>> (dPsf, dResidual, imageWidth,
         startx, starty, stopx, stopy, diffx, diffy, absPeakVal, gGain);
     gpuCheckErrors("kernel launch failure in subtractPSF");
 }
@@ -258,9 +258,9 @@ void GpuSimple::findPeak(float* dMax, size_t* dIndex, size_t* d2Index, float& pe
     vector<size_t> hIndex(GRID_SIZE, 0);
 
 
-    dFindPeak_Step1_Simple << <GRID_SIZE, BLOCK_SIZE >> > (dData, dMax, dIndex, N);
+    dFindPeak_Step1_Simple <<<GRID_SIZE, BLOCK_SIZE>>> (dData, dMax, dIndex, N);
     gpuCheckErrors("gpu kernel launch 1 failure!");
-    dFindPeak_Step2_Simple << <1, BLOCK_SIZE >> > (dMax, dIndex, d2Index, GRID_SIZE);
+    dFindPeak_Step2_Simple <<<1, BLOCK_SIZE >>> (dMax, dIndex, d2Index, GRID_SIZE);
     gpuCheckErrors("gpu kernel launch 2 failure!");
 
     gpuMemcpy(hMax.data(), dMax, sizeof(float), gpuMemcpyDeviceToHost);

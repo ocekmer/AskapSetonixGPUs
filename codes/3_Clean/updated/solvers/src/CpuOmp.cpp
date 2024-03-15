@@ -13,24 +13,27 @@ void CpuOmp::findPeak(const vector<float>& image, float& maxVal, size_t& maxPos)
 	maxPos = 0;
 	const size_t SIZE = image.size();
 
-	float threadAbsMaxVal = 0.0;
-	size_t threadAbsMaxPos = 0;
-
-	#pragma omp parallel for
-	for (auto i = 0; i < SIZE; ++i)
+#pragma omp parallel
 	{
-		if (abs(image[i]) > abs(threadAbsMaxVal))
+		float threadAbsMaxVal = 0.0;
+		size_t threadAbsMaxPos = 0;
+
+		#pragma omp for schedule(static)
+		for (auto i = 0; i < SIZE; ++i)
 		{
-			threadAbsMaxVal = image[i];
-			threadAbsMaxPos = i;
+			if (abs(image[i]) > abs(threadAbsMaxVal))
+			{
+				threadAbsMaxVal = image[i];
+				threadAbsMaxPos = i;
+			}
 		}
-	}
 
-#pragma omp critical
-	if (abs(threadAbsMaxVal) > abs(maxVal))
-	{
-		maxVal = threadAbsMaxVal;
-		maxPos = threadAbsMaxPos;
+		#pragma omp critical
+		if (abs(threadAbsMaxVal) > abs(maxVal))
+		{
+			maxVal = threadAbsMaxVal;
+			maxPos = threadAbsMaxPos;
+		}
 	}
 
 }
